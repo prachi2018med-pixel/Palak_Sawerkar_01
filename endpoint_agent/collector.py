@@ -1,12 +1,13 @@
 """
-CyberTrace AI — Endpoint Telemetry Collector (Phase 1)
-Collects system telemetry (Processes, Network Sockets, Login Events)
+CyberTrace AI (Netraksh AI) — Endpoint Telemetry Collector
+Collects system telemetry (Processes, Network Sockets, Login Attempts, Upload/Download Transfer Speeds)
 while strictly adhering to privacy-preserving guardrails.
 """
 import os
 import platform
 import socket
 import sys
+import time
 from datetime import datetime, timezone
 import psutil
 
@@ -18,12 +19,17 @@ SUSPICIOUS_CLI_PATTERNS = [
 ]
 
 class EndpointCollector:
-    """Collects security telemetry from host operating system."""
+    """Collects security telemetry & behavioral baselines from host OS."""
 
     def __init__(self, host_id: str | None = None):
         self.hostname = socket.gethostname()
         self.host_id = host_id or f"{self.hostname}-{platform.system().lower()}"
         self.os_type = platform.system()
+        
+        # Track initial network I/O counters for speed calculation
+        self._last_net_io = psutil.net_io_counters()
+        self._last_time = time.time()
+        self.failed_login_attempts = 0 # Tracked login failures
 
     def get_system_info(self) -> dict:
         """Return basic system info without personal user file data."""
@@ -35,6 +41,33 @@ class EndpointCollector:
             "cpu_usage_percent": psutil.cpu_percent(interval=0.1),
             "memory_usage_percent": psutil.virtual_memory().percent,
             "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    def measure_transfer_speeds(self) -> dict:
+        """
+        Measure real-time network fetching (download) & uploading speed in MB/s.
+        Flags anomalous data fetching or high-speed exfiltration (>50 MB/s).
+        """
+        now = time.time()
+        net_io = psutil.net_io_counters()
+        dt = max(now - self._last_time, 0.001)
+
+        bytes_sent = net_io.bytes_sent - self._last_net_io.bytes_sent
+        bytes_recv = net_io.bytes_recv - self._last_net_io.bytes_recv
+
+        self._last_net_io = net_io
+        self._last_time = now
+
+        upload_speed_mbps = round((bytes_sent / (1024 * 1024)) / dt, 2)
+        download_speed_mbps = round((bytes_recv / (1024 * 1024)) / dt, 2)
+
+        # Flag if uploading speed exceeds suspicious threshold (e.g. exfiltration)
+        is_exfiltrating = upload_speed_mbps > 50.0
+
+        return {
+            "upload_speed_mbps": upload_speed_mbps,
+            "download_speed_mbps": download_speed_mbps,
+            "is_high_speed_exfiltration": is_exfiltrating
         }
 
     def collect_processes(self) -> list[dict]:
@@ -115,21 +148,31 @@ class EndpointCollector:
                 return f"[PRIVACY RESTRICTED: Sensitive CLI Parameters Redacted]"
         return cmdline
 
-    def build_telemetry_payload(self) -> dict:
+    def build_telemetry_payload(self, failed_logins: int = 0) -> dict:
         """Package sanitized endpoint telemetry into a payload."""
         sys_info = self.get_system_info()
+        transfer_speeds = self.measure_transfer_speeds()
         processes = self.collect_processes()
         flagged_processes = [p for p in processes if p["is_flagged"]]
         sockets = self.collect_network_sockets()
 
+        failed_login_count = failed_logins or self.failed_login_attempts
+        exceeds_login_threshold = failed_login_count > 3 # Rule: > 3 attempts flagged!
+
         return {
             "system_info": sys_info,
+            "transfer_speeds": transfer_speeds,
+            "login_metrics": {
+                "failed_login_attempts": failed_login_count,
+                "exceeds_max_login_threshold": exceeds_login_threshold,
+                "max_allowed_attempts": 3
+            },
             "total_running_processes": len(processes),
             "flagged_processes": flagged_processes,
             "active_sockets": sockets,
             "security_summary": {
                 "flagged_process_count": len(flagged_processes),
                 "active_socket_count": len(sockets),
-                "has_threat_indicators": len(flagged_processes) > 0
+                "has_threat_indicators": len(flagged_processes) > 0 or exceeds_login_threshold or transfer_speeds["is_high_speed_exfiltration"]
             }
         }

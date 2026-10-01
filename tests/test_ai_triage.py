@@ -1,5 +1,5 @@
 """
-Tests for Phase 2 Central AI Triage Engine & MITRE ATT&CK Classification
+Tests for Central AI Triage Engine & Password / Transfer Speed Rules
 """
 import pytest
 from backend.agents.ai_triage import AITriageEngine
@@ -15,8 +15,47 @@ def test_triage_benign_telemetry():
     res = engine.evaluate_telemetry(mock_telemetry)
     assert res["risk_score"] == 0
     assert res["risk_level"] == "LOW"
-    assert res["category"] == "BENIGN_ACTIVITY"
+    assert res["user_valid"] is True
     assert res["false_positive_probability"] > 0.8
+
+def test_triage_password_attempts_exceeded():
+    engine = AITriageEngine()
+    mock_telemetry = {
+        "system_info": {"host_id": "test-workstation-pass", "hostname": "SALES-PC"},
+        "login_metrics": {
+            "failed_login_attempts": 5, # Exceeds limit of 3
+            "max_allowed_attempts": 3
+        },
+        "flagged_processes": [],
+        "active_sockets": []
+    }
+
+    res = engine.evaluate_telemetry(mock_telemetry)
+    assert res["failed_logins"] == 5
+    assert res["user_valid"] is False
+    assert res["risk_score"] >= 70
+    assert res["risk_level"] in ("HIGH", "CRITICAL")
+    assert res["matched_rules"][0]["technique_id"] == "T1110"
+
+def test_triage_high_speed_data_exfiltration():
+    engine = AITriageEngine()
+    mock_telemetry = {
+        "system_info": {"host_id": "test-workstation-speed", "hostname": "R&D-LAPTOP"},
+        "transfer_speeds": {
+            "upload_speed_mbps": 120.5, # Spiked upload speed
+            "download_speed_mbps": 10.0,
+            "is_high_speed_exfiltration": True
+        },
+        "flagged_processes": [],
+        "active_sockets": []
+    }
+
+    res = engine.evaluate_telemetry(mock_telemetry)
+    assert res["upload_speed_mbps"] == 120.5
+    assert res["user_valid"] is False
+    assert res["risk_score"] >= 85
+    assert res["risk_level"] == "CRITICAL"
+    assert res["recommended_action"] == "BROADCAST_SOS_AND_ISOLATE_HOST"
 
 def test_triage_ransomware_shadow_deletion():
     engine = AITriageEngine()

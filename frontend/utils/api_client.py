@@ -1,5 +1,5 @@
 """
-CyberTrace AI — HTTP client for Streamlit → FastAPI communication.
+CyberTrace AI (Netraksh AI) — HTTP client for Streamlit → FastAPI communication.
 """
 import httpx
 
@@ -80,6 +80,27 @@ def set_host_directive(host_id: str, trigger_emergency_alert: bool = False, aler
             "alert_message": alert_message,
             "isolate_host": isolate_host
         },
+        timeout=5.0
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def broadcast_sos_alert(message: str) -> dict:
+    """🚨 Broadcast Emergency SOS banner to ALL company computers simultaneously."""
+    resp = httpx.post(
+        f"{BASE_URL}/api/agent/broadcast_sos",
+        params={"message": message},
+        timeout=5.0
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def cut_off_host(host_id: str) -> dict:
+    """🔒 Cut off infected host from company network."""
+    resp = httpx.post(
+        f"{BASE_URL}/api/agent/cut_off_host/{host_id}",
         timeout=5.0
     )
     resp.raise_for_status()

@@ -1,7 +1,7 @@
 """
-CyberTrace AI — Endpoint Agent Ingestion Routes
-Handles telemetry ingest from endpoint agent daemons running on employee hosts
-and triggers AI Triage Analysis for incident detection.
+CyberTrace AI (Netraksh AI) — Endpoint Agent Ingestion & Directive Routes
+Handles telemetry ingest from endpoint agent daemons running on employee hosts,
+triggers AI Triage Analysis for incident detection, and manages SOS broadcasts.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # Central memory stores for active telemetry, directives, and triaged alerts
 HOST_TELEMETRY_STORE = {}
 HOST_DIRECTIVES_STORE = {}
+GLOBAL_SOS_BROADCAST = {"active": False, "message": ""}
 SOC_ALERTS_STORE = []
 
 ai_engine = AITriageEngine()
@@ -27,6 +28,16 @@ class SystemInfo(BaseModel):
     cpu_usage_percent: float | None = 0.0
     memory_usage_percent: float | None = 0.0
     timestamp: str
+
+class TransferSpeeds(BaseModel):
+    upload_speed_mbps: float = 0.0
+    download_speed_mbps: float = 0.0
+    is_high_speed_exfiltration: bool = False
+
+class LoginMetrics(BaseModel):
+    failed_login_attempts: int = 0
+    exceeds_max_login_threshold: bool = False
+    max_allowed_attempts: int = 3
 
 class ProcessInfo(BaseModel):
     pid: int
@@ -55,6 +66,8 @@ class SecuritySummary(BaseModel):
 
 class TelemetryPayload(BaseModel):
     system_info: SystemInfo
+    transfer_speeds: TransferSpeeds | None = Field(default_factory=TransferSpeeds)
+    login_metrics: LoginMetrics | None = Field(default_factory=LoginMetrics)
     total_running_processes: int
     flagged_processes: list[ProcessInfo] = []
     active_sockets: list[SocketInfo] = []
@@ -62,7 +75,7 @@ class TelemetryPayload(BaseModel):
 
 @router.post("/telemetry")
 def receive_telemetry(payload: TelemetryPayload) -> dict:
-    """Receive sanitized endpoint telemetry, run AI Triage, and check directives."""
+    """Receive sanitized endpoint telemetry, run AI Triage, and return host/global directives."""
     host_id = payload.system_info.host_id
     telemetry_dict = payload.model_dump()
 
@@ -72,7 +85,7 @@ def receive_telemetry(payload: TelemetryPayload) -> dict:
         "data": telemetry_dict
     }
 
-    # ── Phase 2: Run AI Triage Engine ───────────────────────────────────────
+    # ── AI Triage Engine Evaluation ─────────────────────────────────────────
     triage_result = ai_engine.evaluate_telemetry(telemetry_dict)
 
     # Save triaged alert to central SOC alert feed if risk >= MEDIUM (40+)
@@ -86,18 +99,23 @@ def receive_telemetry(payload: TelemetryPayload) -> dict:
             f"Host={triage_result['hostname']}, Score={triage_result['risk_score']}"
         )
 
-    # Fetch any pending directives for this host (e.g. emergency alert / isolation)
-    directives = HOST_DIRECTIVES_STORE.get(host_id, {
+    # Fetch host-specific directives
+    host_directive = HOST_DIRECTIVES_STORE.get(host_id, {
         "trigger_emergency_alert": False,
         "alert_message": "",
         "isolate_host": False
     })
 
+    # Merge with Global SOS Broadcast if active
+    if GLOBAL_SOS_BROADCAST["active"]:
+        host_directive["trigger_emergency_alert"] = True
+        host_directive["alert_message"] = GLOBAL_SOS_BROADCAST["message"]
+
     return {
         "status": "success",
         "host_id": host_id,
         "triage": triage_result,
-        "directives": directives
+        "directives": host_directive
     }
 
 @router.get("/hosts")
@@ -133,4 +151,40 @@ def set_host_directive(
         "status": "updated",
         "host_id": host_id,
         "directives": HOST_DIRECTIVES_STORE[host_id]
+    }
+
+@router.post("/broadcast_sos")
+def broadcast_sos_alert(message: str) -> dict:
+    """
+    🚨 SOS Emergency Broadcast: Sends high-priority red alert banner
+    to ALL connected employee computers simultaneously.
+    """
+    GLOBAL_SOS_BROADCAST["active"] = True
+    GLOBAL_SOS_BROADCAST["message"] = message or "🚨 CRITICAL SOS BROADCAST: Ransomware / Hacker Intrusion Confirmed! Stop Work Immediately!"
+
+    # Also apply to all existing host directive entries
+    for hid in HOST_TELEMETRY_STORE:
+        d = HOST_DIRECTIVES_STORE.get(hid, {})
+        d["trigger_emergency_alert"] = True
+        d["alert_message"] = GLOBAL_SOS_BROADCAST["message"]
+        HOST_DIRECTIVES_STORE[hid] = d
+
+    return {
+        "status": "SOS_BROADCAST_ACTIVE",
+        "total_hosts_notified": len(HOST_TELEMETRY_STORE),
+        "message": GLOBAL_SOS_BROADCAST["message"]
+    }
+
+@router.post("/cut_off_host/{host_id}")
+def cut_off_host(host_id: str) -> dict:
+    """
+    🔒 Cut off infected host from company network (Network Isolation).
+    """
+    d = HOST_DIRECTIVES_STORE.get(host_id, {})
+    d["isolate_host"] = True
+    HOST_DIRECTIVES_STORE[host_id] = d
+    return {
+        "status": "HOST_CUT_OFF_SUCCESS",
+        "host_id": host_id,
+        "isolated": True
     }
