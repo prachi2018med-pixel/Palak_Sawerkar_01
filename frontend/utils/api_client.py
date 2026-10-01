@@ -49,3 +49,38 @@ def get_audit_log() -> dict:
     resp = httpx.get(f"{BASE_URL}/containment/audit_log", timeout=TIMEOUT)
     resp.raise_for_status()
     return resp.json()
+
+
+def get_monitored_hosts() -> dict:
+    """Fetch active endpoint hosts streaming telemetry."""
+    try:
+        resp = httpx.get(f"{BASE_URL}/api/agent/hosts", timeout=5.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {"total_hosts": 0, "hosts": {}}
+
+
+def get_soc_alerts() -> dict:
+    """Fetch live AI triaged alert feed."""
+    try:
+        resp = httpx.get(f"{BASE_URL}/api/agent/alerts", timeout=5.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {"total_alerts": 0, "alerts": []}
+
+
+def set_host_directive(host_id: str, trigger_emergency_alert: bool = False, alert_message: str = "", isolate_host: bool = False) -> dict:
+    """Send SOC directive (Emergency popup or Isolation) for a host."""
+    resp = httpx.post(
+        f"{BASE_URL}/api/agent/directive/{host_id}",
+        params={
+            "trigger_emergency_alert": trigger_emergency_alert,
+            "alert_message": alert_message,
+            "isolate_host": isolate_host
+        },
+        timeout=5.0
+    )
+    resp.raise_for_status()
+    return resp.json()

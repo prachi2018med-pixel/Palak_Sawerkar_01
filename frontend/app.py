@@ -3,15 +3,6 @@ CyberTrace AI — Streamlit Dashboard.
 
 Run with:
     streamlit run frontend/app.py
-
-Layout:
-  ┌─────────────────────────────────────────────────────┐
-  │  HEADER                                             │
-  ├────────────────────┬────────────────────────────────┤
-  │  LEFT COLUMN       │  RIGHT COLUMN                  │
-  │  • Input Panel     │  • Verdict Card                │
-  │  • Status Feed     │  • Containment Box             │
-  └────────────────────┴────────────────────────────────┘
 """
 import sys
 from pathlib import Path
@@ -21,15 +12,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 
-from frontend.components.input_panel    import render_input_panel
-from frontend.components.status_feed    import render_status_feed
-from frontend.components.verdict_card   import render_verdict_card
+from frontend.components.input_panel     import render_input_panel
+from frontend.components.status_feed     import render_status_feed
+from frontend.components.verdict_card    import render_verdict_card
 from frontend.components.containment_box import render_containment_box
-from frontend.utils.api_client          import investigate, simulate_attack
+from frontend.components.agent_dashboard import render_agent_dashboard
+from frontend.utils.api_client           import investigate, simulate_attack
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title      = "CyberTrace AI",
+    page_title      = "CyberTrace AI — Enterprise SOC Platform",
     page_icon       = "🛡️",
     layout          = "wide",
     initial_sidebar_state = "collapsed",
@@ -62,13 +54,13 @@ st.markdown(
         padding: 24px 32px;
         border-radius: 12px;
         border-bottom: 2px solid #3b82f6;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
     ">
-        <h1 style="color:#60a5fa; margin:0;">🛡️ CyberTrace AI</h1>
+        <h1 style="color:#60a5fa; margin:0;">🛡️ CyberTrace AI — SOC Operations & Endpoint Security</h1>
         <p style="color:#94a3b8; margin:4px 0 0 0;">
-            Autonomous Multi-Agent SOC Investigation Platform
-            &nbsp;|&nbsp; <code style="color:#34d399;">4-Agent Pipeline</code>
-            &nbsp;|&nbsp; <code style="color:#34d399;">Human-in-the-Loop Containment</code>
+            Autonomous Endpoint Monitoring
+            &nbsp;|&nbsp; <code style="color:#34d399;">MITRE ATT&CK AI Triage</code>
+            &nbsp;|&nbsp; <code style="color:#34d399;">Human-in-the-Loop Emergency Containment</code>
         </p>
     </div>
     """,
@@ -81,61 +73,70 @@ if "steps"     not in st.session_state: st.session_state.steps     = []
 if "sim_result"not in st.session_state: st.session_state.sim_result= None
 if "error"     not in st.session_state: st.session_state.error     = None
 
-# ── Layout: two columns ───────────────────────────────────────────────────────
-left_col, right_col = st.columns([1, 1], gap="large")
+# ── Main Tabs ─────────────────────────────────────────────────────────────────
+tab_agent, tab_investigate = st.tabs([
+    "🖥️ Endpoint Agent Control & Live Monitoring",
+    "🔍 Multi-Agent Deep Incident Investigation"
+])
 
-with left_col:
-    action = render_input_panel()
+with tab_agent:
+    render_agent_dashboard()
 
-    # Handle form submission
-    if action is not None:
-        st.session_state.error = None
+with tab_investigate:
+    # ── Layout: two columns ───────────────────────────────────────────────────
+    left_col, right_col = st.columns([1, 1], gap="large")
 
-        if action["action"] == "simulate":
-            with st.spinner("💥 Injecting attack telemetry…"):
-                try:
-                    sim = simulate_attack()
-                    st.session_state.sim_result = sim
-                    st.success(
-                        f"✅ Attack injected! Use  `user_id={sim['user_id']}`  "
-                        f"and  `ip_address={sim['ip_address']}`  to investigate."
-                    )
-                    # Auto-fill the fields with the injected data (shown in info box)
-                    st.info(f"📌 Hint: {sim['hint']}")
-                except Exception as e:
-                    st.error(f"Simulation failed: {e}")
+    with left_col:
+        action = render_input_panel()
 
-        elif action["action"] == "investigate":
-            user_id    = action["user_id"]
-            ip_address = action["ip_address"]
+        # Handle form submission
+        if action is not None:
+            st.session_state.error = None
 
-            if not user_id or not ip_address:
-                st.error("Please enter both a User ID and an IP address.")
-            else:
-                with st.spinner(f"🔍 Investigating {user_id} @ {ip_address}…"):
+            if action["action"] == "simulate":
+                with st.spinner("💥 Injecting attack telemetry…"):
                     try:
-                        result = investigate(user_id, ip_address)
-                        st.session_state.verdict = result
-                        st.session_state.steps   = result.get("investigation_steps", [])
+                        sim = simulate_attack()
+                        st.session_state.sim_result = sim
+                        st.success(
+                            f"✅ Attack injected! Use  `user_id={sim['user_id']}`  "
+                            f"and  `ip_address={sim['ip_address']}`  to investigate."
+                        )
+                        st.info(f"📌 Hint: {sim['hint']}")
                     except Exception as e:
-                        st.session_state.error = str(e)
+                        st.error(f"Simulation failed: {e}")
 
-    # Status feed (always visible, updates after each run)
-    st.markdown("---")
-    if st.session_state.error:
-        st.error(f"❌ Backend error: {st.session_state.error}")
-        st.info("Is the backend running? → `uvicorn backend.main:app --reload --port 8000`")
+            elif action["action"] == "investigate":
+                user_id    = action["user_id"]
+                ip_address = action["ip_address"]
 
-    render_status_feed(st.session_state.steps)
+                if not user_id or not ip_address:
+                    st.error("Please enter both a User ID and an IP address.")
+                else:
+                    with st.spinner(f"🔍 Investigating {user_id} @ {ip_address}…"):
+                        try:
+                            result = investigate(user_id, ip_address)
+                            st.session_state.verdict = result
+                            st.session_state.steps   = result.get("investigation_steps", [])
+                        except Exception as e:
+                            st.session_state.error = str(e)
 
-with right_col:
-    render_verdict_card(st.session_state.verdict)
-    st.markdown("---")
-    render_containment_box(st.session_state.verdict)
+        # Status feed (always visible, updates after each run)
+        st.markdown("---")
+        if st.session_state.error:
+            st.error(f"❌ Backend error: {st.session_state.error}")
+            st.info("Is the backend running? → `uvicorn backend.main:app --reload --port 8000`")
+
+        render_status_feed(st.session_state.steps)
+
+    with right_col:
+        render_verdict_card(st.session_state.verdict)
+        st.markdown("---")
+        render_containment_box(st.session_state.verdict)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption(
-    "CyberTrace AI · Hackathon Demo · "
-    "Stack: Python · FastAPI · LangGraph · SQLite · Streamlit"
+    "CyberTrace AI · Open-Source Enterprise SOC Agent · "
+    "Stack: Python · FastAPI · LangGraph · Streamlit · MITRE ATT&CK"
 )
