@@ -12,6 +12,7 @@ from backend.db.connection import init_db
 from backend.api.routes_investigate import router as investigate_router
 from backend.api.routes_simulate    import router as simulate_router
 from backend.api.routes_containment import router as containment_router
+from backend.api.routes_agent       import router as agent_router
 
 # ── App instance ──────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -41,6 +42,8 @@ def startup() -> None:
 app.include_router(investigate_router)
 app.include_router(simulate_router)
 app.include_router(containment_router)
+app.include_router(agent_router)
+
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
