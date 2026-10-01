@@ -1,9 +1,10 @@
 """
 CyberTrace AI (Netraksh AI) — HTTP client for Streamlit → FastAPI communication.
 """
+import os
 import httpx
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 TIMEOUT  = 30.0   # seconds
 
 

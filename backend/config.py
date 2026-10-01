@@ -16,7 +16,7 @@ DB_PATH        = str(DATA_DIR / "mock_logs.db")
 AUDIT_LOG_PATH = str(DATA_DIR / "containment_audit.log")
 
 # ── Server ────────────────────────────────────────────────────────────────────
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:8501").split(",")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 API_HOST     = os.getenv("API_HOST", "0.0.0.0")
 API_PORT     = int(os.getenv("API_PORT", "8000"))
 
