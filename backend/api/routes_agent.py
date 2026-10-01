@@ -1,17 +1,23 @@
 """
 CyberTrace AI — Endpoint Agent Ingestion Routes
-Handles telemetry ingest from endpoint agent daemons running on employee hosts.
+Handles telemetry ingest from endpoint agent daemons running on employee hosts
+and triggers AI Triage Analysis for incident detection.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import logging
 
+from backend.agents.ai_triage import AITriageEngine
+
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
-# In-memory store for active host telemetry & directives
+# Central memory stores for active telemetry, directives, and triaged alerts
 HOST_TELEMETRY_STORE = {}
 HOST_DIRECTIVES_STORE = {}
+SOC_ALERTS_STORE = []
+
+ai_engine = AITriageEngine()
 
 class SystemInfo(BaseModel):
     host_id: str
@@ -56,12 +62,29 @@ class TelemetryPayload(BaseModel):
 
 @router.post("/telemetry")
 def receive_telemetry(payload: TelemetryPayload) -> dict:
-    """Receive sanitized endpoint telemetry from client daemon."""
+    """Receive sanitized endpoint telemetry, run AI Triage, and check directives."""
     host_id = payload.system_info.host_id
+    telemetry_dict = payload.model_dump()
+
+    # Store latest raw telemetry for host
     HOST_TELEMETRY_STORE[host_id] = {
         "received_at": datetime.now(timezone.utc).isoformat(),
-        "data": payload.model_dump()
+        "data": telemetry_dict
     }
+
+    # ── Phase 2: Run AI Triage Engine ───────────────────────────────────────
+    triage_result = ai_engine.evaluate_telemetry(telemetry_dict)
+
+    # Save triaged alert to central SOC alert feed if risk >= MEDIUM (40+)
+    if triage_result["risk_score"] >= 40:
+        SOC_ALERTS_STORE.insert(0, triage_result)
+        # Cap alert store to latest 100 alerts
+        if len(SOC_ALERTS_STORE) > 100:
+            SOC_ALERTS_STORE.pop()
+        logging.warning(
+            f"🚨 SOC ALERT [{triage_result['risk_level']}]: "
+            f"Host={triage_result['hostname']}, Score={triage_result['risk_score']}"
+        )
 
     # Fetch any pending directives for this host (e.g. emergency alert / isolation)
     directives = HOST_DIRECTIVES_STORE.get(host_id, {
@@ -70,14 +93,10 @@ def receive_telemetry(payload: TelemetryPayload) -> dict:
         "isolate_host": False
     })
 
-    # Auto-flag if high risk process detected
-    if payload.security_summary.has_threat_indicators:
-        logging.warning(f"🚨 Threat indicators detected from host {payload.system_info.hostname}!")
-
     return {
         "status": "success",
         "host_id": host_id,
-        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "triage": triage_result,
         "directives": directives
     }
 
@@ -89,8 +108,21 @@ def list_monitored_hosts() -> dict:
         "hosts": HOST_TELEMETRY_STORE
     }
 
+@router.get("/alerts")
+def list_soc_alerts() -> dict:
+    """Fetch live AI triaged alert feed for the SOC Dashboard."""
+    return {
+        "total_alerts": len(SOC_ALERTS_STORE),
+        "alerts": SOC_ALERTS_STORE
+    }
+
 @router.post("/directive/{host_id}")
-def set_host_directive(host_id: str, trigger_emergency_alert: bool = False, alert_message: str = "", isolate_host: bool = False) -> dict:
+def set_host_directive(
+    host_id: str, 
+    trigger_emergency_alert: bool = False, 
+    alert_message: str = "", 
+    isolate_host: bool = False
+) -> dict:
     """Set SOC directive for a specific host (Emergency alert or Isolation)."""
     HOST_DIRECTIVES_STORE[host_id] = {
         "trigger_emergency_alert": trigger_emergency_alert,

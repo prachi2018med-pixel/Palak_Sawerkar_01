@@ -54,7 +54,8 @@ def simulate_attack() -> SimulateResponse:
 
     activity_rows = [
         (ATTACK_USER_ID, ATTACK_DEVICE_ID, _ts(4),   "FILE_DOWNLOAD", "employee_db_full.sql",       210_000_000),
-        (ATTACK_USER_ID, ATTACK_DEVICE_ID, _ts(3, 5),"FILE_DOWNLOAD", "financial_records_live.zip", 180_000_000),
+        (ATTACK_USER_ID, ATTACK_DEVICE_ID, _ts(3),   "FILE_DOWNLOAD", "financial_records_live.zip", 180_000_000),
+
         (ATTACK_USER_ID, ATTACK_DEVICE_ID, _ts(2),   "FILE_DOWNLOAD", "customer_pii_export.csv",    150_000_000),
         (ATTACK_USER_ID, ATTACK_DEVICE_ID, _ts(1),   "FILE_DOWNLOAD", "ip_source_code.tar.gz",       80_000_000),
     ]
